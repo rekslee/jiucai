@@ -49,9 +49,9 @@ jobs:
 
           # 运行 CFTC 抓取脚本
           python scripts/fetch_cftc.py
-          
+
           # 运行 yfinace 抓取脚本
-          python scripts/fetch_yfinance.py
+          python scripts/fetch_yfinace.py
 
       # 5. 将新生成的 CSV 文件提交并推送到仓库
       - name: Commit and push changes

@@ -1,6 +1,9 @@
 import streamlit as st
 import streamlit.components.v1 as components
-
+import streamlit as st
+import yfinance as yf
+import pandas as pd
+import plotly.graph_objects as go
 # 页面配置
 st.set_page_config(page_title="跨市场与流动性", page_icon="🔀", layout="wide")
 
@@ -62,6 +65,34 @@ with tab1:
     """)
     # TradingView 支持直接输入公式：COMEX铜 / COMEX黄金
     render_tradingview_widget("COMEX:HG1!/COMEX:GC1!")
+    st.title("美股宏观先行指标：油金比")
+
+    # 1. 获取数据 (CL=F 是原油期货, GC=F 是黄金期货)
+    @st.cache_data
+    def get_oil_gold_ratio():
+        oil = yf.download("CL=F", period="2y")['Close']
+        gold = yf.download("GC=F", period="2y")['Close']
+        
+        # 对齐日期并计算比率
+        df = pd.concat([oil, gold], axis=1)
+        df.columns = ['Oil', 'Gold']
+        df['Ratio'] = df['Oil'] / df['Gold']
+        return df.dropna()
+
+    data = get_oil_gold_ratio()
+
+    # 2. 绘图 (使用 Plotly 达到类似 TradingView 的交互效果)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=data.index, y=data['Ratio'], name="油金比", line=dict(color='orange')))
+
+    fig.update_layout(
+        title="油金比 (Oil/Gold Ratio) 历史走势",
+        xaxis_title="日期",
+        yaxis_title="比率",
+        template="plotly_dark" # 使用暗色模式，更有科技感
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
 
 with tab2:
     st.subheader("油金比 (Oil/Gold Ratio)")

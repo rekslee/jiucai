@@ -1,5 +1,14 @@
 import streamlit as st
+import pandas as pd
+# 使用 Streamlit 缓存读取本地/GitHub上的 CSV，速度极快！
+@st.cache_data(ttl=3600)
+def load_fred_data():
+    # 直接读取相对路径的 CSV
+    return pd.read_csv('data/fred_employment.csv', index_col='Date', parse_dates=True)
 
+# 在网页中展示
+df = load_fred_data()
+st.line_chart(df['初请失业金(ICSA)'])
 # ==========================================
 # 1. 页面基础配置 (必须放在第一行)
 # ==========================================

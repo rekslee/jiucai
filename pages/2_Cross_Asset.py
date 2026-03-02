@@ -1,9 +1,9 @@
 import streamlit as st
-import streamlit.components.v1 as components
-import streamlit as st
-import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import os
+
 # 页面配置
 st.set_page_config(page_title="跨市场与流动性", page_icon="🔀", layout="wide")
 
@@ -11,108 +11,163 @@ st.title("🔀 跨市场与流动性 (Cross Asset & Liquidity)")
 st.markdown("---")
 st.markdown("通过跨资产比价与宏观利率指标，监控全球资金流向与宏观流动性拐点。")
 
-# 定义一个函数，用于动态生成 TradingView 的嵌入代码
-def render_tradingview_widget(symbol, height=500):
-    # 清理 symbol 中的特殊字符，用于生成合法的 HTML ID
-    clean_id = symbol.replace(':', '_').replace('/', '_').replace('!', '_').replace('-', '_')
-    
-    html_code = f"""
-    <!-- TradingView Widget BEGIN -->
-    <div class="tradingview-widget-container" style="height:{height}px;width:100%">
-      <div id="tradingview_{clean_id}" style="height:calc(100% - 32px);width:100%"></div>
-      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-      <script type="text/javascript">
-      new TradingView.widget(
-      {{
-      "autosize": true,
-      "symbol": "{symbol}",
-      "interval": "D",
-      "timezone": "Asia/Shanghai",
-      "theme": "dark",
-      "style": "1",
-      "locale": "zh_CN",
-      "enable_publishing": false,
-      "backgroundColor": "#131722",
-      "gridColor": "rgba(42, 46, 57, 0.06)",
-      "hide_top_toolbar": false,
-      "hide_legend": false,
-      "save_image": false,
-      "container_id": "tradingview_{clean_id}"
-    }}
-      );
-      </script>
-    </div>
-    <!-- TradingView Widget END -->
-    """
-    # 使用 Streamlit 的 components 渲染 HTML
-    components.html(html_code, height=height)
+# 通用数据加载函数
+@st.cache_data
+def load_data(file_name):
+    try:
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        file_path = os.path.join(root_dir, 'data', file_name)
+        if not os.path.exists(file_path):
+            return pd.DataFrame()
+        return pd.read_csv(file_path, index_col=0, parse_dates=True)
+    except Exception as e:
+        st.error(f"加载数据失败 {file_name}: {e}")
+        return pd.DataFrame()
+
+# 加载所有需要的数据
+df_cross = load_data('oil_gold_ copper.csv')
+df_inflation = load_data('fred_inflation.csv')
+df_financial = load_data('fred_financial.csv')
 
 # 创建 5 个选项卡
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "🥉 铜金比", 
-    "🛢️ 油金比", 
-    "📈 10年期美债", 
+    "🥉 铜金比 vs PPI", 
+    "🛢️ 油金比 vs CPI", 
+    "📈 10年期美债 vs 利率", 
     "📉 收益率曲线(10Y-2Y)", 
     "⚠️ CCC信用利差"
 ])
 
-with tab1:
-    st.subheader("铜金比 (Copper/Gold Ratio)")
-    st.markdown("""
-    * **指标属性**：绝对领先
-    * **核心逻辑**：**顶背离**。铜代表工业需求，金代表避险。比值下降说明聪明钱在买黄金避险，股市极大概率即将补跌。
-    * **预警信号**：股市创新高，但铜金比持续暴跌。
-    """)
-    # TradingView 支持直接输入公式：COMEX铜 / COMEX黄金
-    render_tradingview_widget("COMEX:HG1!/COMEX:GC1!")
-    st.title("美股宏观先行指标：油金比")
+def create_dual_axis_chart(df1, col1, name1, df2, col2, name2, title, 
+                          color1='#b87333', color2='#1f77b4', 
+                          height=600):
+    
+    # 1. 确定完整的日期范围
+    # 取两个数据集中最早的开始时间和最晚的结束时间
+    if df1.empty or df2.empty:
+        st.warning("数据不足，无法绘图")
+        return go.Figure()
 
-    # 1. 获取数据 (CL=F 是原油期货, GC=F 是黄金期货)
-    @st.cache_data
-    def get_oil_gold_ratio():
-        oil = yf.download("CL=F", period="2y")['Close']
-        gold = yf.download("GC=F", period="2y")['Close']
-        
-        # 对齐日期并计算比率
-        df = pd.concat([oil, gold], axis=1)
-        df.columns = ['Oil', 'Gold']
-        df['Ratio'] = df['Oil'] / df['Gold']
-        return df.dropna()
+    start_date = max(df1.index.min(), df2.index.min())
+    end_date = min(df1.index.max(), df2.index.max())
+    
+    # 生成完整的日历日索引
+    full_index = pd.date_range(start=start_date, end=end_date, freq='D')
+    
+    # 2. 重采样并填充数据 (Forward Fill)
+    # 先重索引到完整日期，然后向前填充，处理缺失值
+    d1 = df1.reindex(full_index).ffill()
+    d2 = df2.reindex(full_index).ffill()
+    
+    y1_data = d1[col1]
+    y2_data = d2[col2]
+    
+    y1_title = name1
+    y2_title = name2
 
-    data = get_oil_gold_ratio()
-
-    # 2. 绘图 (使用 Plotly 达到类似 TradingView 的交互效果)
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=data.index, y=data['Ratio'], name="油金比", line=dict(color='orange')))
-
-    fig.update_layout(
-        title="油金比 (Oil/Gold Ratio) 历史走势",
-        xaxis_title="日期",
-        yaxis_title="比率",
-        template="plotly_dark" # 使用暗色模式，更有科技感
+    # 创建双轴图表
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    
+    # 添加轨迹
+    fig.add_trace(
+        go.Scatter(x=full_index, y=y1_data, name=name1, line=dict(color=color1, width=2), connectgaps=True),
+        secondary_y=False
     )
+    
+    fig.add_trace(
+        go.Scatter(x=full_index, y=y2_data, name=name2, line=dict(color=color2, width=2), connectgaps=True),
+        secondary_y=True
+    )
+    
+    # 布局设置
+    fig.update_layout(
+        title=title,
+        template="plotly_dark",
+        height=height,
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    
+    fig.update_yaxes(title_text=y1_title, title_font=dict(color=color1), tickfont=dict(color=color1), secondary_y=False)
+    fig.update_yaxes(title_text=y2_title, title_font=dict(color=color2), tickfont=dict(color=color2), secondary_y=True)
 
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
+
+with tab1:
+    st.subheader("铜金比 vs PPI (Copper/Gold Ratio vs PPI)")
+    st.markdown("""
+    * **核心逻辑**：铜金比反映全球总需求，PPI 反映工业品价格。两者通常高度正相关。
+    * **背离信号**：如果铜金比下跌而 PPI 还在上涨，预示 PPI 即将见顶回落（通胀降温/通缩风险）。
+    """)
+    
+    if not df_cross.empty and not df_inflation.empty:
+        # 确保列名存在
+        if 'Copper_Gold_Ratio' in df_cross.columns and 'PPI(PPIACO)' in df_inflation.columns:
+            fig1 = create_dual_axis_chart(
+                df_cross, 'Copper_Gold_Ratio', '铜金比',
+                df_inflation, 'PPI(PPIACO)', 'PPI (全部商品)',
+                title="铜金比 vs PPI",
+                color1='#b87333', # 铜色
+                color2='#00cc96'  # 绿色
+            )
+            st.plotly_chart(fig1, use_container_width=True)
+        else:
+            st.warning("数据列缺失，请检查数据文件。")
+    else:
+        st.warning("暂无数据，请运行相关脚本获取数据。")
 
 with tab2:
-    st.subheader("油金比 (Oil/Gold Ratio)")
+    st.subheader("油金比 vs CPI (Oil/Gold Ratio vs CPI)")
     st.markdown("""
-    * **指标属性**：领先
-    * **核心逻辑**：**通缩风险**。原油是工业的血液，油价跌金价涨，说明市场对全球经济极度悲观。
-    * **预警信号**：油金比大幅下挫。
+    * **核心逻辑**：原油价格直接影响通胀预期。油金比领先或同步于 CPI。
+    * **预警信号**：油金比大幅下挫通常预示 CPI 将随之下行（通缩压力）。
     """)
-    # NYMEX原油 / COMEX黄金
-    render_tradingview_widget("NYMEX:CL1!/COMEX:GC1!")
+    
+    if not df_cross.empty and not df_inflation.empty:
+         if 'Oil_Gold_Ratio' in df_cross.columns and 'CPI(CPIAUCSL)' in df_inflation.columns:
+            fig2 = create_dual_axis_chart(
+                df_cross, 'Oil_Gold_Ratio', '油金比',
+                df_inflation, 'CPI(CPIAUCSL)', 'CPI (消费者价格指数)',
+                title="油金比 vs CPI",
+                color1='orange', 
+                color2='#AB63FA' 
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+         else:
+            st.warning("数据列缺失，请检查数据文件。")
+    else:
+        st.warning("暂无数据，请运行相关脚本获取数据。")
 
 with tab3:
-    st.subheader("10年期国债收益率 (US 10Y Treasury Yield)")
+    st.subheader("10年期国债收益率 vs 联邦基金利率")
     st.markdown("""
-    * **指标属性**：同步
-    * **核心逻辑**：**杀估值**。10年期美债是所有资产的“地心引力”。无风险收益太高，资金从股市抽离，科技股重挫。
-    * **预警信号**：收益率急速飙升（如突破 $4.5\%$）。
+    * **指标属性**：同步/滞后
+    * **核心逻辑**：**资金成本**。10年期美债收益率是市场无风险利率的基准，通常受美联储加息/降息预期（联邦基金利率）的牵引。
+    * **观察重点**：当10年期美债收益率大幅高于联邦基金利率时，市场预期加息；反之则预期降息。
     """)
-    # 10年期美债收益率
-    render_tradingview_widget("TVC:US10Y")
+    
+    if not df_financial.empty:
+         # 检查列名是否存在
+         cols = df_financial.columns
+         rate_col = '联邦基金利率(FEDFUNDS)'
+         yield_col = '10年期美债收益率(DGS10)'
+         
+         if rate_col in cols and yield_col in cols:
+            fig3 = create_dual_axis_chart(
+                df_financial, rate_col, '联邦基金利率',
+                df_financial, yield_col, '10年期美债收益率',
+                title="10年期美债收益率 vs 联邦基金利率",
+                color1='#EF553B', # 红色
+                color2='#636EFA'  # 蓝色
+            )
+            # 对于利率对比，通常放在同一个轴上更直观，这里强制双轴但刻度范围接近时也易于观察
+            # 或者我们可以自定义 update_yaxes 让它们共享一个轴，但 create_dual_axis_chart 默认是双轴。
+            # 鉴于两者量级相同（都是百分比），双轴也无妨，或者稍后优化为单轴多线。
+            st.plotly_chart(fig3, use_container_width=True)
+         else:
+            st.warning(f"数据列缺失。可用列: {cols.tolist()}")
+    else:
+        st.warning("暂无数据，请运行 fetch_fred.py 脚本获取数据。")
 
 with tab4:
     st.subheader("收益率曲线 10Y-2Y (Yield Curve Inversion)")
@@ -122,7 +177,6 @@ with tab4:
     * **预警信号**：从倒挂 ($<0$) 急速回升至 $>0$。
     """)
     # 10年期收益率 - 2年期收益率
-    render_tradingview_widget("TVC:US10Y-TVC:US02Y")
 
 with tab5:
     st.subheader("CCC 级信用利差 (CCC High Yield Credit Spread)")
@@ -132,4 +186,3 @@ with tab5:
     * **预警信号**：利差突然飙升突破 $10\%$。
     """)
     # TradingView 直接调用 FRED 数据库的 CCC 级期权调整利差
-    render_tradingview_widget("FRED:BAMLH0A3CRPIEY")

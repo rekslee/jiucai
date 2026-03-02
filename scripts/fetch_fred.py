@@ -2,12 +2,20 @@ import os
 import pandas as pd
 from fredapi import Fred
 from datetime import datetime
+import ssl
+
+# 忽略 SSL 证书验证错误
+ssl._create_default_https_context = ssl._create_unverified_context
 
 def fetch_all_macro_data():
     # 1. 获取 API Key
     api_key = os.environ.get('FRED_API_KEY')
+    # api_key = "5824e46f6d6649244c9f18921f8cc00e" # 如果环境变量未设置，可临时使用此 Key
     if not api_key:
-        raise ValueError("未找到 FRED_API_KEY 环境变量！")
+        # 尝试使用硬编码的 Key 作为后备 (仅供开发测试)
+        api_key = "5824e46f6d6649244c9f18921f8cc00e"
+        if not api_key:
+             raise ValueError("未找到 FRED_API_KEY 环境变量！")
     
     fred = Fred(api_key=api_key)
     print(f"[{datetime.now()}] 开始抓取 FRED 宏观全量历史数据...")
@@ -15,6 +23,12 @@ def fetch_all_macro_data():
     # 2. 定义要抓取的指标字典 (按类别分组)
     # 字典格式: {"保存的文件名": {"列名": "FRED的Ticker代码"}}
     indicators = {
+        "growth": {
+            "实际GDP(GDPC1)": "GDPC1",
+            "实际GDP年增长率(A191RO1Q156NBEA)": "A191RO1Q156NBEA",
+            "工业产出(INDPRO)": "INDPRO", # 常被用作 PMI 的宏观替代
+            "产能利用率(TCU)": "TCU"
+        },
         "employment": {
             "初请失业金(ICSA)": "ICSA",
             "非农就业(PAYEMS)": "PAYEMS",
@@ -22,7 +36,8 @@ def fetch_all_macro_data():
         },
         "consumption": {
             "个人储蓄率(PSAVERT)": "PSAVERT",
-            "零售销售额(RSAFS)": "RSAFS"
+            "零售销售额(RSAFS)": "RSAFS",
+            "汽车销量(TOTALSA)": "TOTALSA"
         },
         "housing": {
             "新屋销售(HSN1F)": "HSN1F",
@@ -33,11 +48,15 @@ def fetch_all_macro_data():
         "inflation": {
             "CPI(CPIAUCSL)": "CPIAUCSL",
             "核心CPI(CPILFESL)": "CPILFESL",
-            "核心PCE(PCEPILFE)": "PCEPILFE"
+            "核心PCE(PCEPILFE)": "PCEPILFE",
+            "PPI(PPIACO)": "PPIACO" # 生产者价格指数 (全部商品)
         },
         "financial": {
             "纽约联储WEI(WEI)": "WEI",
-            "CCC级信用利差(BAMLH0A3HYC)": "BAMLH0A3HYC"
+            "CCC级信用利差(BAMLH0A3HYC)": "BAMLH0A3HYC",
+            # "ADS商业状况指数(ADS)": "ADSIndex" 
+            "联邦基金利率(FEDFUNDS)": "FEDFUNDS",
+            "10年期美债收益率(DGS10)": "DGS10"
         }
     }
 

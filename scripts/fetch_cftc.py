@@ -11,29 +11,23 @@ def fetch_cftc_cot():
     df_list = []
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     
-    # 1. 构造下载链接
     urls = [
-        # CFTC 官方提供的 1986-2016 历史汇总包
         "https://www.cftc.gov/files/dea/history/deacot1986_2016.zip"
     ]
     
-    # 加上 2017 年至今的年度包
     current_year = datetime.now().year
     for year in range(2017, current_year + 1):
         urls.append(f"https://www.cftc.gov/files/dea/history/deacot{year}.zip")
         
-    # 2. 循环下载并在内存中解压读取
     for url in urls:
         print(f"⏳ 正在下载: {url}")
         try:
             response = requests.get(url, headers=headers, timeout=30)
             if response.status_code == 200:
                 with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-                    # 找到压缩包里的 txt 或 csv 数据文件
                     data_files = [f for f in z.namelist() if f.endswith('.txt') or f.endswith('.csv')]
                     if data_files:
                         with z.open(data_files[0]) as f:
-                            # CFTC 数据是逗号分隔的
                             df_year = pd.read_csv(f, low_memory=False)
                             df_list.append(df_year)
                 print(f"  ✅ 下载并解析成功！")
@@ -46,43 +40,41 @@ def fetch_cftc_cot():
         print("❌ 所有数据均下载失败！")
         return
         
-    # 3. 合并所有年份的数据
     df_all = pd.concat(df_list, ignore_index=True)
-    
-    # 4. 数据清洗
     df_all.columns = df_all.columns.str.strip()
     
-    # 提取核心列：品种、日期、投机多头(Non-Commercial Long)、投机空头(Non-Commercial Short)
+    # 👇 这里修复了列名，使用了 CFTC Legacy 报告的真实列名
     cols_to_keep = [
         'Market and Exchange Names',
-        'Report_Date_as_YYYY-MM-DD',
-        'NonComm_Positions_Long_All',
-        'NonComm_Positions_Short_All'
+        'As of Date in Form YYYY-MM-DD',
+        'Noncommercial Positions-Long (All)',
+        'Noncommercial Positions-Short (All)'
     ]
     
-    df_clean = df_all[cols_to_keep].copy()
+    try:
+        df_clean = df_all[cols_to_keep].copy()
+    except KeyError as e:
+        print(f"❌ 找不到指定的列名！当前文件包含的列名有: {list(df_all.columns)[:10]}...")
+        raise e
+        
     df_clean.rename(columns={
         'Market and Exchange Names': 'Market',
-        'Report_Date_as_YYYY-MM-DD': 'Date',
-        'NonComm_Positions_Long_All': 'Spec_Long',
-        'NonComm_Positions_Short_All': 'Spec_Short'
+        'As of Date in Form YYYY-MM-DD': 'Date',
+        'Noncommercial Positions-Long (All)': 'Spec_Long',
+        'Noncommercial Positions-Short (All)': 'Spec_Short'
     }, inplace=True)
     
-    # 计算净投机仓位 (Net Speculative Position = 多头 - 空头)
     df_clean['Net_Spec_Position'] = df_clean['Spec_Long'] - df_clean['Spec_Short']
     
-    # 转换日期格式并剔除空值
     df_clean['Date'] = pd.to_datetime(df_clean['Date'], errors='coerce')
     df_clean = df_clean.dropna(subset=['Date'])
     
-    # 5. 过滤核心宏观品种 (使用模糊匹配，防止 CFTC 更改后缀名)
-    # 你可以在这里自由添加你关注的品种关键词
     keywords = {
-        'GOLD -': 'Gold',                                  # 黄金
-        'CRUDE OIL, LIGHT SWEET': 'Crude Oil',             # WTI原油
-        'E-MINI S&P 500': 'S&P 500',                       # 标普500
-        '10-YEAR U.S. TREASURY NOTES': '10Y Treasury',     # 10年期美债
-        'EURO FX': 'Euro'                                  # 欧元
+        'GOLD -': 'Gold',
+        'CRUDE OIL, LIGHT SWEET': 'Crude Oil',
+        'E-MINI S&P 500': 'S&P 500',
+        '10-YEAR U.S. TREASURY NOTES': '10Y Treasury',
+        'EURO FX': 'Euro'
     }
     
     filtered_dfs = []
@@ -93,11 +85,9 @@ def fetch_cftc_cot():
         
     df_filtered = pd.concat(filtered_dfs, ignore_index=True)
     
-    # 去重并按品种和日期排序 (从老到新)
     df_filtered = df_filtered.drop_duplicates(subset=['Market', 'Date'])
     df_filtered = df_filtered.sort_values(['Market', 'Date'])
     
-    # 6. 保存为 CSV
     os.makedirs('data', exist_ok=True)
     file_path = 'data/cftc_cot.csv'
     df_filtered.to_csv(file_path, index=False, date_format='%Y-%m-%d')

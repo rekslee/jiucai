@@ -1,0 +1,54 @@
+name: 自动更新 FRED 宏观数据
+
+# 触发条件
+on:
+  schedule:
+    # 每天 UTC 时间早上 8 点执行 (北京时间下午 4 点)
+    # FRED 数据通常在美国时间早上发布，这个时间抓取比较合适
+    - cron: '0 8 * * *'
+  
+  # 允许你在 GitHub 网页上手动点击按钮运行 (方便测试)
+  workflow_dispatch:
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest # 使用最新的 Ubuntu 虚拟服务器
+
+    steps:
+      # 1. 拉取你的仓库代码
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 2. 安装 Python 环境
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10' # 指定 Python 版本
+
+      # 3. 安装需要的第三方库
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas fredapi
+
+      # 4. 运行你的抓取脚本 (并传入 API Key)
+      - name: Run fetch script
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }} # 从 GitHub Secrets 读取 Key
+        run: python scripts/fetch_fred.py
+
+      # 5. 将新生成的 CSV 文件提交并推送到仓库
+      - name: Commit and push changes
+        run: |
+          # 配置 Git 机器人身份
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # 添加 data 文件夹下的变动
+          git add data/fred_employment.csv
+          
+          # 提交更改。如果数据没变(比如周末没更新)，这步会报错，所以加了 || echo... 忽略报错
+          git commit -m "🤖 Auto-update FRED employment data" || echo "No changes to commit"
+          
+          # 推送回仓库
+          git push

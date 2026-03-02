@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 # 使用 Streamlit 缓存读取本地/GitHub上的 CSV，速度极快！
 @st.cache_data(ttl=3600)
 def load_fred_data():

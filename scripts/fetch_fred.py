@@ -32,8 +32,8 @@ def fetch_employment_data():
         df.index.name = 'Date'
         df = df.sort_index()
         
-        # 获取10年前的年份
-        ten_years_ago = str(datetime.now().year - 10)
+        # 获取50年前的年份
+        ten_years_ago = str(datetime.now().year - 50)
         df = df.loc[ten_years_ago:] 
 
         # 5. 确保 data 文件夹存在

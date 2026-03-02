@@ -50,6 +50,6 @@ jobs:
           # 提交更改。如果数据没变(比如周末没更新)，这步会报错，所以加了 || echo... 忽略报错
           git commit -m "🤖 Auto-update FRED employment data" || echo "No changes to commit"
           # 先拉取远程更改并合并
-          git pull origin main --rebase
+          # git pull origin main --rebase
           # 然后再推送
-          git push origin main
+          git push
